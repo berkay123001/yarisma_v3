@@ -1,0 +1,6 @@
+Stacking OOF AUC: 0.92259
+Weights:
+LGBM: 5.5315
+XGB: 0.5489
+CatBoost: 0.9871
+Intercept: -3.7920

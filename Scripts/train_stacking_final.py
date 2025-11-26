@@ -1,0 +1,154 @@
+import pandas as pd
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import roc_auc_score
+import os
+
+# --- CONFIG ---
+# OOF Files (Train set predictions)
+OOF_FILES = {
+    'LGBM': 'Models/oof_lgbm_optuna.csv',
+    'XGB': 'Models/oof_xgb_fast.csv',
+    'CatBoost': 'Models/oof_cat_fast.csv',
+    'MLP': 'Models/oof_mlp_advanced.csv'
+}
+
+# Submission Files (Test set predictions)
+SUB_FILES = {
+    'LGBM': 'Submissions/Archive/submission_optuna.csv',
+    'XGB': 'Submissions/Archive/submission_xgb_fast.csv',
+    'CatBoost': 'Submissions/Archive/submission_cat_fast.csv',
+    'MLP': 'Submissions/submission_mlp_advanced.csv'
+}
+
+TARGET_COL = 'loan_paid_back'
+
+def load_data():
+    print("Loading data...")
+    # Load original train data for target
+    if os.path.exists('Processed/clean_train.csv'):
+        train = pd.read_csv('Processed/clean_train.csv')
+    elif os.path.exists('clean_train.csv'):
+        train = pd.read_csv('clean_train.csv')
+    else:
+        raise FileNotFoundError("Could not find clean_train.csv")
+        
+    # Load OOF predictions
+    oofs = {}
+    for model_name, path in OOF_FILES.items():
+        if os.path.exists(path):
+            df = pd.read_csv(path)
+            if TARGET_COL in df.columns:
+                oofs[model_name] = df[TARGET_COL]
+            else:
+                print(f"Warning: '{TARGET_COL}' column not found in {path}. Using last column.")
+                oofs[model_name] = df.iloc[:, -1]
+        else:
+            raise FileNotFoundError(f"Missing OOF file: {path}")
+
+    # Load Test predictions
+    subs = {}
+    test_ids = None
+    for model_name, path in SUB_FILES.items():
+        if os.path.exists(path):
+            df = pd.read_csv(path)
+            if test_ids is None and 'id' in df.columns:
+                test_ids = df['id']
+            
+            if TARGET_COL in df.columns:
+                subs[model_name] = df[TARGET_COL]
+            else:
+                print(f"Warning: '{TARGET_COL}' column not found in {path}. Using last column.")
+                subs[model_name] = df.iloc[:, -1]
+        else:
+            print(f"Warning: Missing Submission file: {path}")
+            
+    return train, oofs, subs, test_ids
+
+def main():
+    train, oofs, subs, test_ids = load_data()
+    
+    # Prepare Stacking DataFrames
+    X_stack_train = pd.DataFrame(oofs)
+    y = train[TARGET_COL]
+    
+    # Verify lengths
+    if len(X_stack_train) != len(train):
+        print("Error: Length mismatch between train data and OOF predictions.")
+        return
+
+    # 1. Correlation Check
+    print("\n--- Correlation Matrix of Base Models (OOF) ---")
+    corr_matrix = X_stack_train.corr()
+    print(corr_matrix)
+    
+    # Check MLP correlation specifically
+    if 'MLP' in corr_matrix.columns and 'LGBM' in corr_matrix.columns:
+        mlp_lgbm_corr = corr_matrix.loc['MLP', 'LGBM']
+        print(f"\nMLP vs LGBM Correlation: {mlp_lgbm_corr:.5f}")
+        if mlp_lgbm_corr < 0.95:
+            print("GREAT! MLP brings good diversity.")
+        else:
+            print("Note: MLP is highly correlated, but might still help.")
+    
+    # Handle NaNs
+    from sklearn.impute import SimpleImputer
+    imputer = SimpleImputer(strategy='mean')
+    X_stack_train = pd.DataFrame(imputer.fit_transform(X_stack_train), columns=X_stack_train.columns)
+    
+    # 2. Meta-Model Training (Logistic Regression)
+    print("\n--- Training Meta-Learner (Logistic Regression) ---")
+    
+    kf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    meta_model = LogisticRegression(random_state=42)
+    
+    stack_oof_preds = np.zeros(len(X_stack_train))
+    
+    for fold, (train_idx, val_idx) in enumerate(kf.split(X_stack_train, y)):
+        X_train_fold, X_val_fold = X_stack_train.iloc[train_idx], X_stack_train.iloc[val_idx]
+        y_train_fold, y_val_fold = y.iloc[train_idx], y.iloc[val_idx]
+        
+        meta_model.fit(X_train_fold, y_train_fold)
+        stack_oof_preds[val_idx] = meta_model.predict_proba(X_val_fold)[:, 1]
+        
+    # 3. Output Results
+    stacking_auc = roc_auc_score(y, stack_oof_preds)
+    print(f"\nFinal Stacking OOF AUC Score: {stacking_auc:.5f}")
+    
+    # Train on full OOF data
+    meta_model.fit(X_stack_train, y)
+    
+    print("\n--- Final Meta-Learner Weights (Coefficients) ---")
+    for name, coef in zip(X_stack_train.columns, meta_model.coef_[0]):
+        print(f"{name}: {coef:.4f}")
+    print(f"Intercept: {meta_model.intercept_[0]:.4f}")
+    
+    # 4. Generate Submission
+    if len(subs) == len(OOF_FILES):
+        print("\nGenerating Submissions/submission_final_ensemble.csv...")
+        X_stack_test = pd.DataFrame(subs)
+        
+        # Ensure column order matches training
+        X_stack_test = X_stack_test[X_stack_train.columns]
+        
+        # Handle NaNs in Test
+        X_stack_test = pd.DataFrame(imputer.transform(X_stack_test), columns=X_stack_test.columns)
+        
+        final_preds = meta_model.predict_proba(X_stack_test)[:, 1]
+        
+        submission = pd.DataFrame({
+            'id': test_ids,
+            'loan_paid_back': final_preds
+        })
+        
+        os.makedirs('Submissions', exist_ok=True)
+        submission.to_csv('Submissions/submission_final_ensemble.csv', index=False)
+        print("Submissions/submission_final_ensemble.csv created successfully!")
+    else:
+        print("\nSkipping submission generation due to missing submission files.")
+        print(f"Found: {list(subs.keys())}")
+        print(f"Expected: {list(OOF_FILES.keys())}")
+
+if __name__ == "__main__":
+    main()
