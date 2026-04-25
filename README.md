@@ -3,7 +3,7 @@
 Bu proje, Kaggle Playground Series S5E11 yarışması için geliştirilmiş, yüksek performanslı bir kredi geri ödeme tahminleme boru hattıdır. **3724 takım arasından tek başına (solo entrant) katılarak ilk %25'lik dilime (918. sıra)** girilmesini sağlayan matematiksel optimizasyon ve ensemble tekniklerini içerir.
 
 ## 📊 Başarı Metrikleri
-*   **En Yüksek Skor (Private LB):** 0.92460 (submission_ensemble_v2)
+*   **Final Private Leaderboard Score:** 0.92460 (submission_ensemble_v2)
 *   **Birinci Skoru:** 0.92939
 *   **Makas:** Sadece 0.00479 (Bu kadar küçük bir farkın tek başına ve kısıtlı donanımla korunması, model çeşitliliği ve ağırlık optimizasyonunun bir sonucudur).
 
