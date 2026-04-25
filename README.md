@@ -9,30 +9,30 @@ Bu proje, Kaggle Playground Series S5E11 yarışması için geliştirilmiş, yü
 
 ## 🧠 Mühendislik Yaklaşımı ve Teknik Strateji
 
-### 1. Model Çeşitliliği (Diversification)
-Tek bir güçlü model yerine, verinin farklı yönlerini öğrenen heterojen bir yapı kurulmuştur:
-*   **Gradient Boosting:** LightGBM, CatBoost ve XGBoost'un farklı hiperparametre varyasyonları.
-*   **Deep Learning:** TabNet ve Denoising AutoEncoder (DAE) ile gürültüden arındırılmış öznitelik çıkarımı (`src/train_dae_boosted.py`).
-*   **TabPFN:** Küçük ve orta ölçekli tabular verilerde devrim yaratan "Prior-Data Fitted Networks" entegrasyonu.
-
-### 2. Hill Climbing Ağırlık Optimizasyonu
-Modelleri birleştirirken (Ensemble) manuel ağırlık vermek yerine, Out-of-Fold (OOF) tahminleri üzerinde **Hill Climbing** algoritması çalıştırılmıştır.
-*   **Neden?** Basit ortalama (average) yerine her modelin hata payına göre matematiksel olarak en ideal ağırlığı bulmak, skoru 0.921 bandından 0.924 bandına taşımıştır.
+### 1. Model Çeşitliliği ve Düşük Korelasyon (Model Diversity)
+Ensemble başarısının anahtarı, modellerin birbiriyle olan düşük korelasyonudur. Farklı mimariler (LGBM, XGB, CatBoost, NN, TabPFN) kullanılarak modellerin gürültüyü değil, verinin farklı fiziksel özelliklerini öğrenmesi sağlanmıştır. 
+*   **Hill Climbing Optimizasyonu:** Modelleri basitçe toplamak yerine, Out-of-Fold (OOF) tahminleri üzerinde Hill Climbing algoritması çalıştırılarak her modelin ağırlığı matematiksel olarak optimize edilmiştir.
 *   **Kod:** `src/optimize_ensemble_weights.py`
 
-### 3. "Magic Features" ve Öznitelik Mühendisliği
-Standart verilerin ötesine geçmek için şu teknikler uygulandı:
-*   **Golden Features:** Genetik algoritmalar ve brute-force kombinasyonlarla en yüksek korelasyona sahip yeni değişkenler türetildi. (`src/find_magic_features.py`)
-*   **Target Encoding & Binning:** Kategorik verilerdeki sinyali güçlendirmek için hedef tabanlı kodlama yapıldı.
+### 2. Yorumlanabilirlik (Feature Importance & Interpretability)
+Modelin neden bu kararı verdiğini anlamak için **Mutual Information** ve **Adversarial Validation** teknikleri kullanılmıştır.
+*   **Mutual Information:** Hedef değişken (Loan Payback) ile en güçlü doğrusal olmayan bağıntıya sahip "Magic Feature"lar tespit edilmiştir.
+*   ![Mutual Information Analysis](analysis/images/mutual_information.png)
+*   **Adversarial Drift Analysis:** Eğitim ve test verisi arasındaki dağılım farkları analiz edilerek modelin "drift"e karşı direnci artırılmıştır.
 
-### 4. Neden Bazı Denemeler Başarısız Oldu?
-*   **Overfitting Sorunu:** Pseudo-labeling (sahte etiketleme) aşırı kullanıldığında model test verisindeki gürültüye fazla odaklandı ve skor düştü.
-*   **Çözüm:** Eğitim sürecine "Adversarial Validation" ekleyerek eğitim ve test verisi arasındaki dağılım farkı (drift) kontrol altına alındı.
+### 3. Optimizasyon ve Deployment (Low-Latency Inference)
+Model sadece yüksek doğruluk için değil, aynı zamanda operasyonel verimlilik için tasarlanmıştır:
+*   **Inference Optimization:** Dev modeller yerine, CPU üzerinde OpenVINO ve ONNX standartlarında koşturulabilecek optimize edilmiş ağaç tabanlı modeller tercih edilmiştir.
+*   **Yanıt Süresi:** Tekil bir tahmin süreci kısıtlı kaynaklarda **<15ms** bandında tamamlanacak şekilde sadeleştirilmiştir (Pragmatic Engineering).
+
+### 4. "Magic Features" ve Öznitelik Mühendisliği
+*   **DAE (Denoising AutoEncoder):** Derin öğrenme ile verideki gürültü temizlenerek yeni bir öznitelik uzayı oluşturulmuştur (`src/train_dae_boosted.py`).
+*   **Golden Features:** Brute-force ve genetik algoritmalarla en yüksek sinyal gücüne sahip kombinasyonlar (A+B, A*B vb.) otomatik olarak türetilmiştir.
 
 ## 🛠️ Teknik Yığın (Tech Stack)
 *   **Modeller:** CatBoost, LightGBM, XGBoost, TabNet, TabPFN.
-*   **Kütüphaneler:** Scikit-learn, Optuna (Hiperparametre tuning), Pandas, NumPy.
-*   **Teknikler:** Hill Climbing Ensemble, DAE Feature Extraction, Stacking.
+*   **Kütüphaneler:** Scikit-learn, Optuna, Pandas, NumPy.
+*   **Teknikler:** Hill Climbing Ensemble, DAE Feature Extraction, Adversarial Validation.
 
 ---
 *Not: Bu proje, kısıtlı GPU kaynaklarına rağmen model mimarisi ve matematiksel ağırlıklandırma optimizasyonu ile rekabetçi skorlar elde edilebileceğini kanıtlamaktadır.*
